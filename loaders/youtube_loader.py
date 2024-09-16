@@ -70,7 +70,7 @@ class YoutubeDataset(Dataset):
         mask = self.masks[index] * self.youtube_mask
         data = (data - self.mean) / (self.std + 1e-8)
         data = data + np.random.randn(*data.shape) / 100
-        data[:, FORMAT_RANGES["fps"][0]] = 30.0 / 120.0  # set FPS
+        data[:, FORMAT_RANGES["fps"][0]] = 30.0 / 100.0  # set FPS
         data_and_mask = np.concatenate((data, mask), -1)
         offset = np.random.randint(0, self.context_window-1)
         # data_and_mask = data_and_mask[offset:]

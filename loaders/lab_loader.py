@@ -50,13 +50,13 @@ class LabDataset(Dataset):
         data = (data - self.mean) / (self.std + 1e-8)
         data = data + np.random.randn(*data.shape) / 100
         freq, offset = 4, np.random.choice([1, 2, 3, 4])
-        data[:, youtube_loader.FORMAT_RANGES["fps"][0]] = (120.0/freq) / 120.0
+        data[:, youtube_loader.FORMAT_RANGES["fps"][0]] = (100.0/freq) / 100.0
         data_and_mask = np.concatenate((data, mask), -1)
         data_and_mask = data_and_mask[::freq]
         
         return torch.from_numpy(data_and_mask).float()
     
-    def return_to_raw(self, data, fps=120):
+    def return_to_raw(self, data, fps=100):
         data = data * (self.std + 1e-8) + self.mean
         data_dict = {}
         for key in youtube_loader.FORMAT_LENGTHS:

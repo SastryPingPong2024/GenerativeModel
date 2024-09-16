@@ -15,7 +15,7 @@ class PositionalEncoding(nn.Module):
     def forward(self, x, fps):
         x_pos_encoded = torch.zeros(x.shape).to(x.device)
         for i in range(len(fps)):
-            step_size = round(120/fps[i].item())
+            step_size = round(300/fps[i].item())
             x_pos_encoded[i] = x[i] + self.pe[:x.size(1)*step_size:step_size]
         return x_pos_encoded
 

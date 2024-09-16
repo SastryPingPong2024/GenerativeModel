@@ -91,7 +91,7 @@ def train(rank, world_size):
             batch = batch.to(rank)
             x = x.to(rank)
             
-            fps = x[:, 0, -1] * 120.0
+            fps = x[:, 0, -1] * 100.0
             token_mask = token_mask.to(rank)
             future_mask = generate_square_subsequent_mask(x.shape[1]).to(rank)
             
@@ -131,7 +131,7 @@ def train(rank, world_size):
                 batch = batch.to(rank)
                 x = x.to(rank)
                 
-                fps = x[:, 0, -1] * 120.0
+                fps = x[:, 0, -1] * 100.0
                 token_mask = token_mask.to(rank)
                 future_mask = generate_square_subsequent_mask(x.shape[1]).to(rank)
                 y = model(x, mask=future_mask, token_mask=token_mask, fps=fps)

@@ -14,7 +14,7 @@ ANTICIPATORY_WINDOW = 8
 NUM_SAMPLES = 5
 CONTEXT_WINDOW = 16
 TOKEN_DIM = FORMAT_SIZE
-MODEL_PARAMS = (TOKEN_DIM, 256, 16, 4, 1024)  # d_input, d_model, nhead, num_layers, dim_feedforward
+MODEL_PARAMS = (TOKEN_DIM, 512, 16, 4, 1024)  # d_input, d_model, nhead, num_layers, dim_feedforward
 BATCH_SIZE = 1        
     
 device = torch.device("cpu")  # torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -60,7 +60,7 @@ def main():
     # token_mask[:, ANTICIPATORY_WINDOW+4:, FORMAT_RANGES["p1_pad"][0]:FORMAT_RANGES["p1_pad"][1]] = 1.0
     use_mask_on_generation = False
     
-    fps = round(batch[0, 0, -1].item() * 120.0)
+    fps = round(batch[0, 0, -1].item() * 100.0)
     
     # Run inference
     generation_length = batch.shape[1]+1
