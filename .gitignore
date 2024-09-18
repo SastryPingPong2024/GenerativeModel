@@ -1,4 +1,6 @@
 recons/
 recons_lab/
 recons_test/
+recons_lab_test/
+plots/
 __pycache__/

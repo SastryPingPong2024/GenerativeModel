@@ -6,10 +6,11 @@ from . import youtube_loader, lab_loader
 
 class CombinedDataset:
     
-    def __init__(self, youtube_root, lab_root, test_root, context_window, val_split=0.05):
+    def __init__(self, youtube_root, lab_root, youtube_test_root, lab_test_root, context_window, val_split=0.05, constant_fps=False):
         self.youtube_dataset = youtube_loader.YoutubeDataset(youtube_root, context_window)
-        self.lab_dataset = lab_loader.LabDataset(lab_root)
-        self.test_dataset = youtube_loader.YoutubeDataset(test_root, context_window)
+        self.lab_dataset = lab_loader.LabDataset(lab_root, constant_fps=constant_fps)
+        self.youtube_test_dataset = youtube_loader.YoutubeDataset(youtube_test_root, context_window)
+        self.lab_test_dataset = lab_loader.LabDataset(lab_test_root, constant_fps=constant_fps)
         self._set_mean_and_std()
         self.train_dataset = ConcatDataset([self.youtube_dataset, self.lab_dataset])
         self.train_dataset, self.val_dataset = split_dataset(self.train_dataset, val_split=val_split)
@@ -22,7 +23,8 @@ class CombinedDataset:
         self.mean[-15:-1], self.std[-15:-1] = self.lab_dataset.mean.copy()[-15:-1], self.lab_dataset.std.copy()[-15:-1]
         self.youtube_dataset.mean, self.youtube_dataset.std = self.mean, self.std
         self.lab_dataset.mean, self.lab_dataset.std = self.mean, self.std
-        self.test_dataset.mean, self.test_dataset.std = self.mean, self.std
+        self.youtube_test_dataset.mean, self.youtube_test_dataset.std = self.mean, self.std
+        self.lab_test_dataset.mean, self.lab_test_dataset.std = self.mean, self.std
     
 def collate_fn(batch):
     batch.sort(key=lambda x: x.shape[0], reverse=True)

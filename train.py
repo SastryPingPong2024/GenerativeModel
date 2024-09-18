@@ -13,11 +13,11 @@ from loaders.loader import CombinedDataset, collate_fn
 from loaders.youtube_loader import FORMAT_RANGES, FORMAT_SIZE
 
 # Hyperparameters
-CONTEXT_WINDOW = 32
+CONTEXT_WINDOW = 16
 TOKEN_DIM = FORMAT_SIZE
-MODEL_PARAMS = (TOKEN_DIM, 512, 16, 4, 1024)  # d_input, d_model, nhead, num_layers, dim_feedforward
-INIT_LR = 5e-4
-FINAL_LR = 5e-6
+MODEL_PARAMS = (TOKEN_DIM, 256, 16, 4, 1024)  # d_input, d_model, nhead, num_layers, dim_feedforward
+INIT_LR  = 2e-4
+FINAL_LR = 1e-6
 NUM_EPOCHS = 200
 BATCH_SIZE = 512 
 RANDOM_MASK_PROB = 0.5
@@ -37,12 +37,28 @@ def loss_fn(output, target, weight=5):
     target[:, FORMAT_RANGES["b"][0]:FORMAT_RANGES["b"][1]]           = weight * target[:, FORMAT_RANGES["b"][0]:FORMAT_RANGES["b"][1]]
     return F.mse_loss(output, target)
 
+def save_checkpoint(model, optimizer, lr_scheduler, epoch, filename):
+    checkpoint = {
+        'model_state_dict': model.module.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'lr_scheduler_state_dict': lr_scheduler.state_dict(),
+        'epoch': epoch
+    }
+    torch.save(checkpoint, filename)
+
+def load_checkpoint(filename, model, optimizer, lr_scheduler):
+    checkpoint = torch.load(filename)
+    model.module.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    lr_scheduler.load_state_dict(checkpoint['lr_scheduler_state_dict'])
+    return checkpoint['epoch']
+
 def train(rank, world_size):
     print(f"Running on rank {rank}.")
     setup(rank, world_size)
 
     # Load data
-    loader = CombinedDataset("recons", "recons_lab", "recons_test", CONTEXT_WINDOW, val_split=0.05)
+    loader = CombinedDataset("recons", "recons_lab", "recons_test", "recons_lab_test", CONTEXT_WINDOW, val_split=0.05)
     train_sampler = torch.utils.data.distributed.DistributedSampler(
         loader.train_dataset,
         num_replicas=world_size,
@@ -72,10 +88,15 @@ def train(rank, world_size):
     # Learning rate scheduler for linear decay
     lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=FINAL_LR/INIT_LR, total_iters=NUM_EPOCHS)
 
+    # Check if there's a checkpoint to resume from
+    start_epoch = 0
+    # start_epoch = load_checkpoint('checkpoint.pth', model, optimizer, lr_scheduler)
+    # print(f"Resuming from epoch {start_epoch}")
+
     # Training loop
     train_losses, val_losses = [], []
     best_val_loss = float('inf')
-    for epoch in range(NUM_EPOCHS):
+    for epoch in range(start_epoch, NUM_EPOCHS):
         model.train()
         train_loss = 0
         train_samples = 0
@@ -91,7 +112,7 @@ def train(rank, world_size):
             batch = batch.to(rank)
             x = x.to(rank)
             
-            fps = x[:, 0, -1] * 100.0
+            fps = batch[:, 0, -1] * 100.0
             token_mask = token_mask.to(rank)
             future_mask = generate_square_subsequent_mask(x.shape[1]).to(rank)
             
@@ -157,11 +178,11 @@ def train(rank, world_size):
             # Save the best model
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                torch.save(model.module.state_dict(), 'best_model.pth')
+                save_checkpoint(model, optimizer, lr_scheduler, epoch, 'best_model.pth')
                 print(f"New best model saved with validation loss: {best_val_loss:.6f}")
         
-            # Save the model
-            torch.save(model.module.state_dict(), 'curr_model.pth')
+            # Save a checkpoint for resuming training
+            save_checkpoint(model, optimizer, lr_scheduler, epoch+1, 'checkpoint.pth')
         
             # Update learning rate
             lr_scheduler.step()
@@ -169,8 +190,10 @@ def train(rank, world_size):
             print(f"Learning rate: {current_lr:.6f}")
         
             plt.clf()
-            plt.plot(train_losses, label="train error")
-            plt.plot(val_losses, label="validation error")
+            plt.plot(train_losses, label="Train error")
+            plt.plot(val_losses, label="Validation error")
+            plt.xlabel("Epochs")
+            plt.ylabel("Loss")
             plt.legend()
             plt.savefig("track.png")
         

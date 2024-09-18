@@ -13,8 +13,9 @@ PLAYER_MASK_INDICES = np.array([30, 31, 32, 33, 34, 35, 39, 40, 41, 42, 43, 44, 
 
 class LabDataset(Dataset):
     
-    def __init__(self, root_dir):
-        self.root_dir = root_dir    
+    def __init__(self, root_dir, constant_fps=False):
+        self.root_dir = root_dir  
+        self.constant_fps = constant_fps  
         self._load_data()
         self.lab_mask = np.ones(self.data[0].shape[-1])
         if "p1" in youtube_loader.FORMAT:
@@ -30,11 +31,13 @@ class LabDataset(Dataset):
         
         self.data = []
         self.masks = []
+        self.hit_times = []
         for path, mirrored in itertools.product(self.paths, [False, True]):
-            segment, segment_mask, hitter = load_data(path, mirrored=mirrored, mask_non_hitter=True)
+            segment, segment_mask, hitter, hit_time = load_data(path, mirrored=mirrored, mask_non_hitter=True)
             if hitter == 1:
                 self.data.append(segment)
                 self.masks.append(segment_mask)
+                self.hit_times.append(hit_time)
             
         # Compute statistics for normalization.
         data_concated = np.concatenate(self.data, 0)
@@ -49,7 +52,10 @@ class LabDataset(Dataset):
         mask = self.masks[index] * self.lab_mask
         data = (data - self.mean) / (self.std + 1e-8)
         data = data + np.random.randn(*data.shape) / 100
-        freq, offset = 4, np.random.choice([1, 2, 3, 4])
+        if self.constant_fps:
+            freq = 3
+        else:
+            freq = np.random.choice([2, 3, 4, 5])
         data[:, youtube_loader.FORMAT_RANGES["fps"][0]] = (100.0/freq) / 100.0
         data_and_mask = np.concatenate((data, mask), -1)
         data_and_mask = data_and_mask[::freq]
@@ -197,18 +203,20 @@ def load_data(path, mirrored=False, mask_non_hitter=False):
         
     if 1 not in data["p1_hits"][[0, -1]]:
         data["hitter"] = 1
+        data["hit_time"] = np.where(data["p1_hits"] == 1)[0].flatten()[0]
         if mask_non_hitter: 
             data_mask["p2"] = np.zeros(data["p2"].shape)
             data_mask["p2_pad_hand"] = np.zeros(data["p2_pad_hand"].shape)
             data_mask["p2_pad"] = np.zeros(data["p2_pad"].shape)
     else:
         data["hitter"] = 2
+        data["hit_time"] = np.where(data["p2_hits"] == 1)[0].flatten()[0]
         if mask_non_hitter: 
             data_mask["p1"] = np.zeros(data["p1"].shape)
             data_mask["p1_pad_hand"] = np.zeros(data["p1_pad_hand"].shape)
             data_mask["p1_pad"] = np.zeros(data["p1_pad"].shape)
 
-    return youtube_loader.format_data(data), youtube_loader.format_data(data_mask), data["hitter"]
+    return youtube_loader.format_data(data), youtube_loader.format_data(data_mask), data["hitter"], data["hit_time"]
 
 if __name__ == "__main__":
     ds = LabDataset("../recons_lab")

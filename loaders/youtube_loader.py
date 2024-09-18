@@ -34,7 +34,7 @@ if "p2_pad" in FORMAT:
     
 class YoutubeDataset(Dataset):
     
-    def __init__(self, root_dir, context_window=16):
+    def __init__(self, root_dir, context_window=32):
         self.root_dir = root_dir    
         self.context_window = context_window
         self._load_data()
@@ -72,8 +72,11 @@ class YoutubeDataset(Dataset):
         data = data + np.random.randn(*data.shape) / 100
         data[:, FORMAT_RANGES["fps"][0]] = 30.0 / 100.0  # set FPS
         data_and_mask = np.concatenate((data, mask), -1)
+
         offset = np.random.randint(0, self.context_window-1)
-        # data_and_mask = data_and_mask[offset:]
+        if len(data_and_mask) - offset > 16:
+            data_and_mask = data_and_mask[offset:]
+
         return torch.from_numpy(data_and_mask).float()
     
     def return_to_raw(self, data, fps=30):
@@ -98,7 +101,7 @@ class YoutubeDataset(Dataset):
         raw_data[0, 0, 1] = raw_data[0, 0, 2] = len(raw_data)
         return raw_data, data_dict["p1_pad"],  data_dict["p2_pad"]
         
-def load_data(path, context_window, mirrored=False, mask_non_hitter=False):
+def load_data(path, context_window, mirrored=False, mask_non_hitter=False, mask_ball_interps=False):
     """Loads a reconstructed table tennis rally into a dictionary."""
     raw_data = np.load(path)
     raw_data[:, 2:, :] *= 0.003048
@@ -144,6 +147,10 @@ def load_data(path, context_window, mirrored=False, mask_non_hitter=False):
         "fps":     np.ones((sequence_length, 1))
     } 
     
+    if mask_ball_interps:
+        ball_keypoints = data["p1_hits"] + data["p2_hits"] + data["bounces"]
+        data_mask["b"][np.where(ball_keypoints == 0)] = 0.0
+    
     # Mirroring
     if mirrored:
         data["p1"], data["p2"] = data["p2"], data["p1"]
@@ -175,7 +182,7 @@ def format_data(data_dict):
         data[:, s:e] = data_dict[key].reshape(seq_len, -1)
     return data
 
-def form_segments(data, data_mask, context_window=16, mask_non_hitter=False):
+def form_segments(data, data_mask, context_window=16, mask_non_hitter=True):
     p1_hits = np.where(data["p1_hits"] == 1)[0]
     p2_hits = np.where(data["p2_hits"] == 1)[0]
     hits = np.concatenate((p1_hits, p2_hits), 0)
