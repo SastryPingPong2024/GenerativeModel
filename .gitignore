@@ -1,6 +1,4 @@
-recons/
-recons_lab/
-recons_test/
-recons_lab_test/
+data/
 plots/
+models/
 __pycache__/

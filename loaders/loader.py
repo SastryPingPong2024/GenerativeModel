@@ -6,10 +6,10 @@ from . import youtube_loader, lab_loader
 
 class CombinedDataset:
     
-    def __init__(self, youtube_root, lab_root, youtube_test_root, lab_test_root, context_window, val_split=0.05, constant_fps=False):
-        self.youtube_dataset = youtube_loader.YoutubeDataset(youtube_root, context_window)
+    def __init__(self, youtube_root, lab_root, youtube_test_root, lab_test_root, val_split=0.05, constant_fps=False):
+        self.youtube_dataset = youtube_loader.YoutubeDataset(youtube_root)
         self.lab_dataset = lab_loader.LabDataset(lab_root, constant_fps=constant_fps)
-        self.youtube_test_dataset = youtube_loader.YoutubeDataset(youtube_test_root, context_window)
+        self.youtube_test_dataset = youtube_loader.YoutubeDataset(youtube_test_root)
         self.lab_test_dataset = lab_loader.LabDataset(lab_test_root, constant_fps=constant_fps)
         self._set_mean_and_std()
         self.train_dataset = ConcatDataset([self.youtube_dataset, self.lab_dataset])
@@ -20,7 +20,10 @@ class CombinedDataset:
     
     def _set_mean_and_std(self):
         self.mean, self.std = self.youtube_dataset.mean.copy(), self.youtube_dataset.std.copy()
-        self.mean[-15:-1], self.std[-15:-1] = self.lab_dataset.mean.copy()[-15:-1], self.lab_dataset.std.copy()[-15:-1]
+        rng1 = youtube_loader.FORMAT_RANGES["p1_pad"]
+        # rng2 = youtube_loader.FORMAT_RANGES["p2_pad"]
+        self.mean[rng1[0]:rng1[1]], self.std[rng1[0]:rng1[1]] = self.lab_dataset.mean.copy()[rng1[0]:rng1[1]], self.lab_dataset.std.copy()[rng1[0]:rng1[1]]
+        # self.mean[rng2[0]:rng2[1]], self.std[rng2[0]:rng2[1]] = self.lab_dataset.mean.copy()[rng2[0]:rng2[1]], self.lab_dataset.std.copy()[rng2[0]:rng2[1]]
         self.youtube_dataset.mean, self.youtube_dataset.std = self.mean, self.std
         self.lab_dataset.mean, self.lab_dataset.std = self.mean, self.std
         self.youtube_test_dataset.mean, self.youtube_test_dataset.std = self.mean, self.std

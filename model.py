@@ -23,7 +23,7 @@ class TransformerModel(nn.Module):
     def __init__(self, d_input, d_model, nhead, num_layers, dim_feedforward):
         super().__init__()
         self.embedding = nn.Linear(d_input, d_model)
-        self.pos_encoder = PositionalEncoding(d_model, 5000)
+        self.pos_encoder = PositionalEncoding(d_model, 50000)
         encoder_layer = nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward, batch_first=True)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers)
         self.output = nn.Linear(d_model, d_input)
@@ -46,9 +46,10 @@ class TransformerModel(nn.Module):
             output = self(src, mask=mask, token_mask=token_mask[:, :src.shape[1]], fps=fps)
             randomness = (torch.randn(output.shape[0], 1, output.shape[2]) * variance).to(device)
             src = torch.concat((src, output[:, -1:] + randomness), 1) 
+        output = torch.concat((src[:, :1], output[:, :-1]), 1)
         if use_mask_on_generation:
             output = output * token_mask[:, :output.shape[1]]
-        return output 
+        return output
 
 def generate_square_subsequent_mask(sz):
     mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)

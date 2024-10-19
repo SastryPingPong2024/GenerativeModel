@@ -34,9 +34,8 @@ if "p2_pad" in FORMAT:
     
 class YoutubeDataset(Dataset):
     
-    def __init__(self, root_dir, context_window=32):
+    def __init__(self, root_dir):
         self.root_dir = root_dir    
-        self.context_window = context_window
         self._load_data()
         self.youtube_mask = np.ones(self.data[0].shape[-1])
         self.youtube_mask[PADDLE_MASK_INDICES] = 0.0
@@ -49,13 +48,16 @@ class YoutubeDataset(Dataset):
                 for file in os.listdir(match_path):
                     if file.endswith('.npy'):
                         paths.append(os.path.join(match_path, file))
+        self.paths = paths
         
-        self.data = []
-        self.masks = []
+        self.data, self.masks, self.hit_times = [], [], []
         for path, mirrored in itertools.product(paths, [False, True]):
-            for segment, segment_mask in load_data(path, self.context_window, mirrored=mirrored, mask_non_hitter=True):
-                self.data.append(segment)
-                self.masks.append(segment_mask)
+            segment_generator = load_data(path, mirrored=mirrored)
+            if segment_generator is not None:
+                for segment, segment_mask, hit_time in segment_generator:
+                    self.data.append(segment)
+                    self.masks.append(segment_mask)
+                    self.hit_times.append(hit_time)
                 
         # Compute statistics for normalization.
         data_concated = np.concatenate(self.data, 0)
@@ -72,11 +74,6 @@ class YoutubeDataset(Dataset):
         data = data + np.random.randn(*data.shape) / 100
         data[:, FORMAT_RANGES["fps"][0]] = 30.0 / 100.0  # set FPS
         data_and_mask = np.concatenate((data, mask), -1)
-
-        offset = np.random.randint(0, self.context_window-1)
-        if len(data_and_mask) - offset > 16:
-            data_and_mask = data_and_mask[offset:]
-
         return torch.from_numpy(data_and_mask).float()
     
     def return_to_raw(self, data, fps=30):
@@ -100,8 +97,8 @@ class YoutubeDataset(Dataset):
         raw_data[0, 0, 0] = fps
         raw_data[0, 0, 1] = raw_data[0, 0, 2] = len(raw_data)
         return raw_data, data_dict["p1_pad"],  data_dict["p2_pad"]
-        
-def load_data(path, context_window, mirrored=False, mask_non_hitter=False, mask_ball_interps=False):
+
+def load_data(path, mirrored=False, mask_ball_interps=False):
     """Loads a reconstructed table tennis rally into a dictionary."""
     raw_data = np.load(path)
     raw_data[:, 2:, :] *= 0.003048
@@ -111,6 +108,8 @@ def load_data(path, context_window, mirrored=False, mask_non_hitter=False, mask_
     # Prune raw_data of any nan segments.
     raw_data = raw_data.reshape(sequence_length, -1)
     nans = np.where(np.any(np.isnan(raw_data), axis=-1) == False)[0]
+    if len(nans) == 0:
+        return None
     raw_data = raw_data[nans[0]:nans[-1]+1]
     sequence_length = raw_data.shape[0]
     raw_data = raw_data.reshape(sequence_length, -1, 3)
@@ -166,13 +165,16 @@ def load_data(path, context_window, mirrored=False, mask_non_hitter=False, mask_
     data_mask["p1_root"] = data_mask["p1"][:, root_joint:root_joint+1]
     data_mask["p2_root"] = data_mask["p2"][:, root_joint:root_joint+1]
     
+    if (abs(data["p1_root"]) > 4.35).any() or (abs(data["p2_root"]) > 4.35).any():
+        return None
+    
     # Add paddle hand information
     data["p1_pad_hand"] = data["p1"][:, p1_hand]
     data["p2_pad_hand"] = data["p2"][:, p2_hand]
     data_mask["p1_pad_hand"] = np.ones(data["p1_pad_hand"].shape)
     data_mask["p2_pad_hand"] = np.ones(data["p2_pad_hand"].shape)
     
-    return form_segments(data, data_mask, context_window=context_window, mask_non_hitter=mask_non_hitter)
+    return form_segments(data, data_mask)
 
 def format_data(data_dict):
     seq_len = data_dict["sequence_length"]
@@ -182,7 +184,7 @@ def format_data(data_dict):
         data[:, s:e] = data_dict[key].reshape(seq_len, -1)
     return data
 
-def form_segments(data, data_mask, context_window=16, mask_non_hitter=True):
+def form_segments(data, data_mask, mask_non_hitter=False):
     p1_hits = np.where(data["p1_hits"] == 1)[0]
     p2_hits = np.where(data["p2_hits"] == 1)[0]
     hits = np.concatenate((p1_hits, p2_hits), 0)
@@ -193,22 +195,31 @@ def form_segments(data, data_mask, context_window=16, mask_non_hitter=True):
     
     # Compile the remaining data for each hit subsequence
     for i in range(1, len(hits)-1):
-        segment_start, segment_end = hits[i], hits[i+1]
-        segment_start = max(0, segment_start-context_window)
+        segment_start, segment_end = hits[i-1], hits[-1] # hits[i-1], hits[i+1]
         segment = data[segment_start:segment_end+1].copy()
         segment_mask = mask[segment_start:segment_end+1].copy()
         if mask_non_hitter:
-            # if hits[i] in p1_hits:
-            #     segment_mask[:, FORMAT_RANGES["p2"][0]:FORMAT_RANGES["p2"][0]]  = 0.0
-            #     segment_mask[:, FORMAT_RANGES["p2_pad_hand"][0]:FORMAT_RANGES["p2_pad_hand"][1]] = 0.0
-            #     segment_mask[:, FORMAT_RANGES["p2_pad"][0]:FORMAT_RANGES["p2_pad"][1]] = 0.0
-            # else:
-            #     segment_mask[:, FORMAT_RANGES["p1"][0]:FORMAT_RANGES["p1"][0]]  = 0.0
-            #     segment_mask[:, FORMAT_RANGES["p1_pad_hand"][0]:FORMAT_RANGES["p1_pad_hand"][1]] = 0.0
-            #     segment_mask[:, FORMAT_RANGES["p1_pad"][0]:FORMAT_RANGES["p1_pad"][1]] = 0.0
-            pass
-        if hits[i] in p1_hits:
-            yield segment, segment_mask
+            if hits[i] in p1_hits:
+                segment_mask[:, FORMAT_RANGES["p2"][0]:FORMAT_RANGES["p2"][0]]  = 0.0
+                segment_mask[:, FORMAT_RANGES["p2_pad_hand"][0]:FORMAT_RANGES["p2_pad_hand"][1]] = 0.0
+                segment_mask[:, FORMAT_RANGES["p2_pad"][0]:FORMAT_RANGES["p2_pad"][1]] = 0.0
+            else:
+                segment_mask[:, FORMAT_RANGES["p1"][0]:FORMAT_RANGES["p1"][0]]  = 0.0
+                segment_mask[:, FORMAT_RANGES["p1_pad_hand"][0]:FORMAT_RANGES["p1_pad_hand"][1]] = 0.0
+                segment_mask[:, FORMAT_RANGES["p1_pad"][0]:FORMAT_RANGES["p1_pad"][1]] = 0.0
+        if hits[i] in p1_hits:            
+            yield segment, segment_mask, (hits[i:] - segment_start) / 0.3
+            break
         
 if __name__ == "__main__":
-    ds = YoutubeDataset("../recons")
+    ds = YoutubeDataset("../data/recons")
+    
+    # all_start_ends = []
+    # for path in ds.paths:
+    #     segments = load_data(ds.paths[0], 0)
+    #     for segment, _ in segments:
+    #         start_end = segment[[0, -1], FORMAT_RANGES["p1_pad_hand"][0]:FORMAT_RANGES["p1_pad_hand"][1]] + segment[[0, -1], FORMAT_RANGES["p1_root"][0]:FORMAT_RANGES["p1_root"][1]]
+    #         start_end = start_end.flatten()
+    #         start_end = np.concatenate((start_end, [segment.shape[0] / 30]))
+    #         all_start_ends.append(start_end)
+    # all_start_ends = np.array(all_start_ends)

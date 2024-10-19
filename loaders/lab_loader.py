@@ -33,7 +33,7 @@ class LabDataset(Dataset):
         self.masks = []
         self.hit_times = []
         for path, mirrored in itertools.product(self.paths, [False, True]):
-            segment, segment_mask, hitter, hit_time = load_data(path, mirrored=mirrored, mask_non_hitter=True)
+            segment, segment_mask, hitter, hit_time = load_data(path, mirrored=mirrored)
             if hitter == 1:
                 self.data.append(segment)
                 self.masks.append(segment_mask)
@@ -82,7 +82,7 @@ class LabDataset(Dataset):
         raw_data = np.concatenate((np.zeros((data.shape[0], 2, 3)), data_dict["p1"], data_dict["p2"], data_dict["b"]), axis=1) / 0.003048
         raw_data[0, 0, 0] = fps
         raw_data[0, 0, 1] = raw_data[0, 0, 2] = len(raw_data)
-        return raw_data, data_dict["p1_pad"],  data_dict["p2_pad"]
+        return raw_data, data_dict["p1_pad"], data_dict["p2_pad"]
 
 def swap_xy1(seq):
     seq_copy = seq.copy()
@@ -219,4 +219,4 @@ def load_data(path, mirrored=False, mask_non_hitter=False):
     return youtube_loader.format_data(data), youtube_loader.format_data(data_mask), data["hitter"], data["hit_time"]
 
 if __name__ == "__main__":
-    ds = LabDataset("../recons_lab")
+    ds = LabDataset("../data/recons_lab")
