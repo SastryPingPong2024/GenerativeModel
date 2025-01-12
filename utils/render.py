@@ -5,6 +5,8 @@ from matplotlib.animation import FuncAnimation
 import pickle
 from .analysis import *
 
+RESCALE_FACTOR = 0.003048
+
 class MultiSampleVideoRenderer:
     
     def __init__(self, data, pad1_data, pad2_data, preds_start_index):
@@ -118,8 +120,43 @@ def render_paddle(ax, pose, radius, color, rescale_factor):
     
     return paddle, paddle_fill, orientation_line1, orientation_line2
 
+def render_table(ax, table_dims):
+    table_x = [-table_dims[0] / 2, table_dims[0] / 2, table_dims[0] / 2, -table_dims[0] / 2, -table_dims[0] / 2]
+    table_y = [-table_dims[1] / 2, -table_dims[1] / 2, table_dims[1] / 2, table_dims[1] / 2, -table_dims[1] / 2]
+    table_z = [+table_dims[2]] * 5
+
+    # Draw the table outline
+    ax.plot(table_x, table_y, table_z, color='b')
+
+    # Add a colored surface for the table top
+    X, Y = np.meshgrid([-table_dims[0] / 2, table_dims[0] / 2], [-table_dims[1] / 2, table_dims[1] / 2])
+    Z = np.full_like(X, table_dims[2])
+    ax.plot_surface(X, Y, Z, color='darkblue', alpha=0.5)
+
+    # Add table legs
+    leg_positions = [
+        (-table_dims[0] / 2, -table_dims[1] / 2),
+        ( table_dims[0] / 2, -table_dims[1] / 2),
+        ( table_dims[0] / 2,  table_dims[1] / 2),
+        (-table_dims[0] / 2,  table_dims[1] / 2),
+    ]
+
+    for x, y in leg_positions:
+        ax.plot([x, x], [y, y], [table_dims[2], 0], color='brown', linewidth=2)
+
+def render_player(ax, p_keypoints, scene_idx):
+    p_keypoints = p_keypoints * RESCALE_FACTOR
+    ax.scatter(p_keypoints[:, 0], p_keypoints[:, 1], p_keypoints[:, 2], s=0.5, color="black" if scene_idx == 0 else "blue")
+
 def render(processed_videos, fps, paddle_radius=0.08, show_feet=False, show_extended=False, preds_start_index=None, mean_ball_pos=None, std_ball_pos=None):
-    RESCALE_FACTOR = 0.003048
+    """
+    i scene index
+    j frame index
+    """
+
+    # Define the vertices of the table
+    table_dims = [900 * RESCALE_FACTOR, 500 * RESCALE_FACTOR, 250 * RESCALE_FACTOR]
+    bounds = 3
 
     # 85% coverage
     conformal_quantiles = np.array([
@@ -128,64 +165,34 @@ def render(processed_videos, fps, paddle_radius=0.08, show_feet=False, show_exte
         [0.40550781640637296, 0.5742079440870748, 0.6812971397118697, 0.7661444710282662, 0.8415379903185687, 0.9402827848608202, 0.7080130071480693, 0.6057326442700078, 0.5746672670870012, 0.5615233440799146, 0.5710602636760211, 0.561112864746084, 0.5312603983613653, 0.5117987256840801, 0.5157448388330336, 0.5150762613446283, 0.5113235767753378, 0.48560122547970874, 0.4512521915857473, 0.4488816650213105, 0.4557234478722744, 0.45870182822009503, 0.5162635518891237, 0.565577248774426, 0.6239351552541345, 0.683423214824455, 0.7606941273692029, 0.8514389244445777, 0.8902068848783098, 0.9571187223630979, 1.0459959294356345, 0.918422908633598, 0.9791553810014163, 0.9666145126566881] 
     ])
 
+    num_scenes = len(processed_videos)
     min_frame, max_frame = 0, processed_videos[0].num_frames if show_extended else len(processed_videos[0])
-    scenes = [ { j: processed_videos[i][j] for j in range(max_frame) } for i in range(len(processed_videos)) ]
+    scenes = [ { j: processed_videos[i][j] for j in range(max_frame) } for i in range(num_scenes) ]
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
-    # Define the vertices of the table
-    table_dims = [900 * RESCALE_FACTOR, 500 * RESCALE_FACTOR, 250 * RESCALE_FACTOR]
-
-    # Add the ping pong table to the scene
-    def add_table(ax):
-        table_x = [-table_dims[0] / 2, table_dims[0] / 2, table_dims[0] / 2, -table_dims[0] / 2, -table_dims[0] / 2]
-        table_y = [-table_dims[1] / 2, -table_dims[1] / 2, table_dims[1] / 2, table_dims[1] / 2, -table_dims[1] / 2]
-        table_z = [+table_dims[2]] * 5
-
-        # Draw the table outline
-        ax.plot(table_x, table_y, table_z, color='b')
-
-        # Add a colored surface for the table top
-        X, Y = np.meshgrid([-table_dims[0] / 2, table_dims[0] / 2], [-table_dims[1] / 2, table_dims[1] / 2])
-        Z = np.full_like(X, table_dims[2])
-        ax.plot_surface(X, Y, Z, color='darkblue', alpha=0.5)
-
-        # Add table legs
-        leg_positions = [
-            (-table_dims[0] / 2, -table_dims[1] / 2),
-            ( table_dims[0] / 2, -table_dims[1] / 2),
-            ( table_dims[0] / 2,  table_dims[1] / 2),
-            (-table_dims[0] / 2,  table_dims[1] / 2),
-        ]
-
-        for x, y in leg_positions:
-            ax.plot([x, x], [y, y], [table_dims[2], 0], color='brown', linewidth=2)
-
-    bounds = 3
-    ball_trajectories = [[] for _ in range(len(scenes))]
+    ball_trajectories = [[] for _ in range(num_scenes)]
 
     def update(frame):
         ax.cla()  # Clear the current axes
 
-        for i in range(len(scenes)):
+        # for each of the scenes that we're overlaying on top of each other
+        for i in range(num_scenes):
             scene = scenes[i]
             ball_trajectory = ball_trajectories[i]                
 
             if frame in scene:
-                ax.set_xlim(-bounds, bounds)
-                ax.set_ylim(-bounds, bounds)
-                ax.set_zlim(0, bounds)
-
                 p1_keypoints, p2_keypoints, ball_pos, pad1_pose, pad2_pose = scene[frame]
 
                 # Plot the players.
-                points = np.concatenate((p1_keypoints, p2_keypoints), axis=0) * RESCALE_FACTOR
-                ax.scatter(points[:, 0], points[:, 1], points[:, 2], s=0.5, color="black" if i == 0 else "blue")
+                render_player(ax, p1_keypoints, i)
+                render_player(ax, p2_keypoints, i)
 
                 # Render paddles (optional, if data is available)
                 # render_paddle(ax, pad1_pose, paddle_radius, "red", RESCALE_FACTOR)
                 # render_paddle(ax, pad2_pose, paddle_radius, "red", RESCALE_FACTOR)
+                # TODO(nima): what is this for?
                 if False and i == 0 and preds_start_index is not None and frame >= preds_start_index:
                     t = (frame - preds_start_index) / fps
                     # Define the vertices of the box around the ball
@@ -273,13 +280,16 @@ def render(processed_videos, fps, paddle_radius=0.08, show_feet=False, show_exte
                     ax.plot(ball_trajectory_arr[:, 0] * RESCALE_FACTOR, ball_trajectory_arr[:, 1] * RESCALE_FACTOR, ball_trajectory_arr[:, 2] * RESCALE_FACTOR, color="black" if i == 0 else "red")
 
         if frame in scenes[0]:    
-            add_table(ax)
+            render_table(ax, table_dims)
 
-            # Add title and labels to the axes
             ax.set_title('Ball Uncertainty Region Against Ground Truth Trajectory')
             ax.set_xlabel('X (meters)')
             ax.set_ylabel('Y (meters)')
             ax.set_zlabel('Z (meters)')
+
+            ax.set_xlim(-bounds, bounds)
+            ax.set_ylim(-bounds, bounds)
+            ax.set_zlim(0, bounds)
 
         return ax,
 
