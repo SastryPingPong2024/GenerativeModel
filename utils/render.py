@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import art3d
 from matplotlib.animation import FuncAnimation
 import pickle
-from .analysis import *
+from .analysis import generate_reachable_box, correct_pred
 
 RESCALE_FACTOR = 0.003048
 
@@ -155,11 +155,8 @@ def render_ball(ax, ball_trajectory, scene_idx):
     ball_trajectory_arr = np.array(ball_trajectory) * RESCALE_FACTOR
     ax.plot(ball_trajectory_arr[:, 0], ball_trajectory_arr[:, 1], ball_trajectory_arr[:, 2], color="black" if scene_idx == 0 else "red")
 
-def render_reachable_box(ax, t):
-    # Define the vertices of the box around the ball
-    box_x, box_y, box_z = generate_reachable_box(t)
-
-    # Create the vertices for the bounding box
+def render_box(ax, box_x, box_y, box_z, **illustration_kwargs):
+    # Create the vertices for the box
     vertices = [
         [box_x[0], box_y[0], box_z[0]],
         [box_x[1], box_y[0], box_z[0]],
@@ -171,7 +168,7 @@ def render_reachable_box(ax, t):
         [box_x[0], box_y[1], box_z[1]],
     ]
 
-    # Define the faces of the bounding box
+    # Define the faces of the box
     faces = [
         [vertices[0], vertices[1], vertices[2], vertices[3]],  # Bottom face
         [vertices[4], vertices[5], vertices[6], vertices[7]],  # Top face
@@ -183,45 +180,7 @@ def render_reachable_box(ax, t):
 
     # Create the 3D polygon collection with darker edges
     box = art3d.Poly3DCollection(
-        faces, alpha=0.1, facecolor='red', edgecolor='darkred', linewidths=1.5
-    )
-    ax.add_collection3d(box)
-
-def render_conformal_box(ax, conformal_quantiles, t, mean_ball_pos, std_ball_pos):
-    r = conformal_quantiles[:, t]
-    r = r * ((std_ball_pos * RESCALE_FACTOR) + 0.016 * (t + 1))
-
-    mean_ball_pos_scaled = mean_ball_pos * RESCALE_FACTOR
-    # Define the vertices of the box around the ball
-    box_x = [mean_ball_pos_scaled[0] - r[0], mean_ball_pos_scaled[0] + r[0]]
-    box_y = [mean_ball_pos_scaled[1] - r[1], mean_ball_pos_scaled[1] + r[1]]
-    box_z = [mean_ball_pos_scaled[2] - r[2], mean_ball_pos_scaled[2] + r[2]]
-
-    # Create the vertices for the bounding box
-    vertices = [
-        [box_x[0], box_y[0], box_z[0]],
-        [box_x[1], box_y[0], box_z[0]],
-        [box_x[1], box_y[1], box_z[0]],
-        [box_x[0], box_y[1], box_z[0]],
-        [box_x[0], box_y[0], box_z[1]],
-        [box_x[1], box_y[0], box_z[1]],
-        [box_x[1], box_y[1], box_z[1]],
-        [box_x[0], box_y[1], box_z[1]],
-    ]
-
-    # Define the faces of the bounding box
-    faces = [
-        [vertices[0], vertices[1], vertices[2], vertices[3]],  # Bottom face
-        [vertices[4], vertices[5], vertices[6], vertices[7]],  # Top face
-        [vertices[0], vertices[1], vertices[5], vertices[4]],  # Side faces
-        [vertices[1], vertices[2], vertices[6], vertices[5]],
-        [vertices[2], vertices[3], vertices[7], vertices[6]],
-        [vertices[3], vertices[0], vertices[4], vertices[7]],
-    ]
-
-    # Create the 3D polygon collection with darker edges
-    box = art3d.Poly3DCollection(
-        faces, alpha=0.2, facecolor='cyan', edgecolor='darkblue', linewidths=1.5
+        faces, **illustration_kwargs,
     )
     ax.add_collection3d(box)
 
@@ -246,11 +205,10 @@ def render(processed_videos, fps, paddle_radius=0.08, show_feet=False, show_exte
     num_scenes = len(processed_videos)
     min_frame, max_frame = 0, processed_videos[0].num_frames if show_extended else len(processed_videos[0])
     scenes = [ { j: processed_videos[i][j] for j in range(max_frame) } for i in range(num_scenes) ]
+    ball_trajectories = [[] for _ in range(num_scenes)]
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-
-    ball_trajectories = [[] for _ in range(num_scenes)]
 
     def update(frame):
         ax.cla()  # Clear the current axes
@@ -258,51 +216,58 @@ def render(processed_videos, fps, paddle_radius=0.08, show_feet=False, show_exte
         # for each of the scenes that we're overlaying on top of each other
         for i in range(num_scenes):
             scene = scenes[i]
-            ball_trajectory = ball_trajectories[i]                
+            if not frame in scene:
+                continue
 
-            if frame in scene:
-                p1_keypoints, p2_keypoints, ball_pos, pad1_pose, pad2_pose = scene[frame]
+            p1_keypoints, p2_keypoints, ball_pos, pad1_pose, pad2_pose = scene[frame]
 
-                # Plot the ball.
-                if frame == 0:
-                    ball_trajectory.clear()
-                if ball_pos is not None:
-                    ball_trajectory.append(ball_pos)
-                    # Keep only the last 5 positions
-                    if len(ball_trajectory) > 5:
-                        ball_trajectory.pop(0)
+            # Plot the ball.
+            ball_trajectory = ball_trajectories[i]   
+            if frame == 0:
+                ball_trajectory.clear()
+            if ball_pos is not None:
+                ball_trajectory.append(ball_pos)
+                # Keep only the last 5 positions
+                if len(ball_trajectory) > 5:
+                    ball_trajectory.pop(0)
 
-                    render_ball(ax, ball_trajectory, i)
+                render_ball(ax, ball_trajectory, i)
 
-                # Plot the players.
-                render_player(ax, p1_keypoints, i)
-                render_player(ax, p2_keypoints, i)
+            # Plot the players.
+            render_player(ax, p1_keypoints, i)
+            render_player(ax, p2_keypoints, i)
 
-                # Render paddles (optional, if data is available)
-                # render_paddle(ax, pad1_pose, paddle_radius, "red", RESCALE_FACTOR)
-                # render_paddle(ax, pad2_pose, paddle_radius, "red", RESCALE_FACTOR)
+            # Render paddles (optional, if data is available)
+            # render_paddle(ax, pad1_pose, paddle_radius, "red", RESCALE_FACTOR)
+            # render_paddle(ax, pad2_pose, paddle_radius, "red", RESCALE_FACTOR)
 
-                # Plot the reachable box as it grows over time
-                if i == 0 and preds_start_index and frame >= preds_start_index:
-                    t = (frame - preds_start_index) / fps
-                    render_reachable_box(ax, t)
-                    
-                # Plot the conformal box
-                if i == 0 and preds_start_index and frame >= preds_start_index and frame <= 25 + preds_start_index:
-                    t = round((frame - preds_start_index) * 30 / fps)
-                    render_conformal_box(ax, conformal_quantiles, t, mean_ball_pos[frame], std_ball_pos[frame])
+            # Plot the reachable box as it grows over time
+            if i == 0 and preds_start_index and frame >= preds_start_index:
+                t = (frame - preds_start_index) / fps
+                box_x, box_y, box_z = generate_reachable_box(t)
+                render_box(ax, box_x, box_y, box_z, alpha=0.1, facecolor='red', edgecolor='darkred', linewidths=1.5)
+                
+            # Plot the conformal box
+            if i == 0 and preds_start_index and frame >= preds_start_index and frame <= 25 + preds_start_index:
+                t = round((frame - preds_start_index) * 30 / fps)
+                r = conformal_quantiles[:, t]
+                r = r * ((std_ball_pos[frame] * RESCALE_FACTOR) + 0.016 * (t + 1))
+                mean_ball_pos_scaled = mean_ball_pos[frame] * RESCALE_FACTOR
+                box_x = [mean_ball_pos_scaled[0] - r[0], mean_ball_pos_scaled[0] + r[0]]
+                box_y = [mean_ball_pos_scaled[1] - r[1], mean_ball_pos_scaled[1] + r[1]]
+                box_z = [mean_ball_pos_scaled[2] - r[2], mean_ball_pos_scaled[2] + r[2]]
+                render_box(ax, box_x, box_y, box_z, alpha=0.2, facecolor='cyan', edgecolor='darkblue', linewidths=1.5)
 
-        if frame in scenes[0]:    
-            render_table(ax, table_dims)
+        render_table(ax, table_dims)
 
-            ax.set_title('Ball Uncertainty Region Against Ground Truth Trajectory')
-            ax.set_xlabel('X (meters)')
-            ax.set_ylabel('Y (meters)')
-            ax.set_zlabel('Z (meters)')
+        ax.set_title('Ball Uncertainty Region Against Ground Truth Trajectory')
+        ax.set_xlabel('X (meters)')
+        ax.set_ylabel('Y (meters)')
+        ax.set_zlabel('Z (meters)')
 
-            ax.set_xlim(-bounds, bounds)
-            ax.set_ylim(-bounds, bounds)
-            ax.set_zlim(0, bounds)
+        ax.set_xlim(-bounds, bounds)
+        ax.set_ylim(-bounds, bounds)
+        ax.set_zlim(0, bounds)
 
         return ax,
 
