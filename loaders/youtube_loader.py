@@ -50,7 +50,7 @@ class YoutubeDataset(Dataset):
                         paths.append(os.path.join(match_path, file))
         self.paths = paths
         
-        self.data, self.masks, self.hit_times = [], [], []
+        self.data, self.masks, self.hit_times, self.recons = [], [], [], []
         for path, mirrored in itertools.product(paths, [False, True]):
             segment_generator = load_data(path, mirrored=mirrored)
             if segment_generator is not None:
@@ -58,6 +58,7 @@ class YoutubeDataset(Dataset):
                     self.data.append(segment)
                     self.masks.append(segment_mask)
                     self.hit_times.append(hit_time)
+                    self.recons.append(path)
                 
         # Compute statistics for normalization.
         data_concated = np.concatenate(self.data, 0)
@@ -165,7 +166,9 @@ def load_data(path, mirrored=False, mask_ball_interps=False):
     data_mask["p1_root"] = data_mask["p1"][:, root_joint:root_joint+1]
     data_mask["p2_root"] = data_mask["p2"][:, root_joint:root_joint+1]
     
-    if (abs(data["p1_root"]) > 4.35).any() or (abs(data["p2_root"]) > 4.35).any():
+    d1 = abs(data["p1_root"][1:] - data["p1_root"][:-1])
+    d2 = abs(data["p2_root"][1:] - data["p2_root"][:-1])
+    if (d1 > 1.0).any() or (d2 > 1.0).any():
         return None
     
     # Add paddle hand information
@@ -223,3 +226,5 @@ if __name__ == "__main__":
     #         start_end = np.concatenate((start_end, [segment.shape[0] / 30]))
     #         all_start_ends.append(start_end)
     # all_start_ends = np.array(all_start_ends)
+    
+    

@@ -16,9 +16,9 @@ from loaders.youtube_loader import FORMAT_RANGES, FORMAT_SIZE
 TOKEN_DIM = FORMAT_SIZE
 MODEL_PARAMS = (TOKEN_DIM, 256, 16, 4, 1024)  # d_input, d_model, nhead, num_layers, dim_feedforward
 INIT_LR = 1e-3
-FINAL_LR = 1e-6
-NUM_EPOCHS = 250
-BATCH_SIZE = 64
+FINAL_LR = 2e-5
+NUM_EPOCHS = 300
+BATCH_SIZE = 90
 RANDOM_MASK_PROB = 0.5
 NUM_MODELS = 5 # Number of models in the ensemble
 

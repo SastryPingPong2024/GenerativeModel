@@ -30,7 +30,7 @@ def run_inference(model, context, generation_length, token_mask, fps, use_mask_o
     if verbose: print(f"Generation Time: {time.time() - t}")
     return generated
 
-def generate(model, dataset, idx, mask, context_size, device, num_gens_per_sample, use_mask_on_generation=True, verbose=True, hit_time_idx=None):    
+def generate(model, dataset, idx, mask, context_size, device, num_gens_per_sample, use_mask_on_generation=True, verbose=True, hit_time_idx=None, use_ground_truth=True, gen_extra=0, return_ground_truth_seperate=True):    
     # Get a random sample from the dataset
     sample = dataset[idx]
     sample = sample.unsqueeze(0)
@@ -41,6 +41,7 @@ def generate(model, dataset, idx, mask, context_size, device, num_gens_per_sampl
         
     # Apply the mask
     token_mask *= mask.to(device)
+    mask_extra = mask.unsqueeze(0).unsqueeze(0).repeat(token_mask.shape[0], gen_extra, 1).to(device)
     
     if context_size < 0:
         hit_times = dataset.hit_times[idx]
@@ -54,37 +55,40 @@ def generate(model, dataset, idx, mask, context_size, device, num_gens_per_sampl
         start_idx  = round(start_time / f)
         
     # Run inference
-    predicted_sequences = run_inference(model, batch[:, :start_idx], generation_length+1, token_mask, fps, use_mask_on_generation=use_mask_on_generation, num_gens_per_sample=num_gens_per_sample, verbose=verbose)
+    predicted_sequences = run_inference(model, batch[:, :start_idx], generation_length+1+gen_extra, torch.concat((token_mask, mask_extra), 1), fps, use_mask_on_generation=use_mask_on_generation, num_gens_per_sample=num_gens_per_sample, verbose=verbose)
     if use_mask_on_generation:
         batch = batch * token_mask
-    predicted_sequences = torch.concat((batch[:, :generation_length], predicted_sequences), dim=0)  # ground truth
+    if use_ground_truth:
+        predicted_sequences = torch.concat((batch[:, :generation_length], predicted_sequences), dim=0)  # ground truth
     predicted_sequences = predicted_sequences.cpu()
     
+    if return_ground_truth_seperate:
+        return predicted_sequences, fps, start_idx, batch[:, :generation_length].cpu()
     return predicted_sequences, fps, start_idx
 
 def main():
     # Set random seed for reproducibility
-    random_seed = 0
+    random_seed = 1
     random.seed(random_seed)
     np.random.seed(random_seed)
     torch.manual_seed(random_seed)
 
-    device = torch.device("cpu")  # torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda")  # torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     prompt_size, num_gens_per_sample = -5, 1
-    loader = CombinedDataset("data/recons", "data/recons_lab", "data/recons_extreme", "data/recons_lab_test", val_split=0.05, constant_fps=True)
+    loader = CombinedDataset("data/recons", "data/recons_lab", "data/recons_supp", "data/recons_lab_test", val_split=0.05, constant_fps=True)
     
     models = []
-    ens_number, num_models = 2, 5
+    ens_number, num_models = 6, 5
     for i in range(num_models):
         model = load_model(f'models/ensemble{ens_number}/best_model_{i}.pth', device)
         models.append(model)
     
     dataset = loader.youtube_test_dataset
     mask = loader.youtube_mask
-    idx = 4 # torch.randint(0, len(dataset), (1,)).item() 
-    print((len(dataset.hit_times[idx]) // 2) - 1)
-    hit_time = 1 # (len(dataset.hit_times[idx]) // 2) - 1  # torch.randint(0, len(dataset.hit_times[idx]) // 2, (1,)).item()
+    idx = 1 # torch.randint(0, len(dataset), (1,)).item() 
+    print(idx, (len(dataset.hit_times[idx]) // 2) - 1)
+    hit_time = 1 # torch.randint(0, len(dataset.hit_times[idx]) // 2, (1,)).item()
     
     preds = []
     for model in models:
@@ -97,7 +101,8 @@ def main():
             device,
             num_gens_per_sample, 
             use_mask_on_generation=False,
-            hit_time_idx=hit_time
+            hit_time_idx=hit_time,
+            return_ground_truth_seperate=False
         )
         if len(preds) == 0:
             preds.append(predicted_sequences)
