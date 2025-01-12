@@ -148,6 +148,84 @@ def render_player(ax, p_keypoints, scene_idx):
     p_keypoints = p_keypoints * RESCALE_FACTOR
     ax.scatter(p_keypoints[:, 0], p_keypoints[:, 1], p_keypoints[:, 2], s=0.5, color="black" if scene_idx == 0 else "blue")
 
+def render_ball(ax, ball_trajectory, scene_idx):
+    head_ball_pos_scaled = ball_trajectory[-1] * RESCALE_FACTOR # the most recent value. the head (or rosh, as r. eva would say) of the trajectory
+    ax.scatter(head_ball_pos_scaled[0], head_ball_pos_scaled[1], head_ball_pos_scaled[2], s=4, color="black" if scene_idx == 0 else "green")
+
+    ball_trajectory_arr = np.array(ball_trajectory) * RESCALE_FACTOR
+    ax.plot(ball_trajectory_arr[:, 0], ball_trajectory_arr[:, 1], ball_trajectory_arr[:, 2], color="black" if scene_idx == 0 else "red")
+
+def render_reachable_box(ax, t):
+    # Define the vertices of the box around the ball
+    box_x, box_y, box_z = generate_reachable_box(t)
+
+    # Create the vertices for the bounding box
+    vertices = [
+        [box_x[0], box_y[0], box_z[0]],
+        [box_x[1], box_y[0], box_z[0]],
+        [box_x[1], box_y[1], box_z[0]],
+        [box_x[0], box_y[1], box_z[0]],
+        [box_x[0], box_y[0], box_z[1]],
+        [box_x[1], box_y[0], box_z[1]],
+        [box_x[1], box_y[1], box_z[1]],
+        [box_x[0], box_y[1], box_z[1]],
+    ]
+
+    # Define the faces of the bounding box
+    faces = [
+        [vertices[0], vertices[1], vertices[2], vertices[3]],  # Bottom face
+        [vertices[4], vertices[5], vertices[6], vertices[7]],  # Top face
+        [vertices[0], vertices[1], vertices[5], vertices[4]],  # Side faces
+        [vertices[1], vertices[2], vertices[6], vertices[5]],
+        [vertices[2], vertices[3], vertices[7], vertices[6]],
+        [vertices[3], vertices[0], vertices[4], vertices[7]],
+    ]
+
+    # Create the 3D polygon collection with darker edges
+    box = art3d.Poly3DCollection(
+        faces, alpha=0.1, facecolor='red', edgecolor='darkred', linewidths=1.5
+    )
+    ax.add_collection3d(box)
+
+def render_conformal_box(ax, conformal_quantiles, t, mean_ball_pos, std_ball_pos):
+    r = conformal_quantiles[:, t]
+    r = r * ((std_ball_pos * RESCALE_FACTOR) + 0.016 * (t + 1))
+
+    mean_ball_pos_scaled = mean_ball_pos * RESCALE_FACTOR
+    # Define the vertices of the box around the ball
+    box_x = [mean_ball_pos_scaled[0] - r[0], mean_ball_pos_scaled[0] + r[0]]
+    box_y = [mean_ball_pos_scaled[1] - r[1], mean_ball_pos_scaled[1] + r[1]]
+    box_z = [mean_ball_pos_scaled[2] - r[2], mean_ball_pos_scaled[2] + r[2]]
+
+    # Create the vertices for the bounding box
+    vertices = [
+        [box_x[0], box_y[0], box_z[0]],
+        [box_x[1], box_y[0], box_z[0]],
+        [box_x[1], box_y[1], box_z[0]],
+        [box_x[0], box_y[1], box_z[0]],
+        [box_x[0], box_y[0], box_z[1]],
+        [box_x[1], box_y[0], box_z[1]],
+        [box_x[1], box_y[1], box_z[1]],
+        [box_x[0], box_y[1], box_z[1]],
+    ]
+
+    # Define the faces of the bounding box
+    faces = [
+        [vertices[0], vertices[1], vertices[2], vertices[3]],  # Bottom face
+        [vertices[4], vertices[5], vertices[6], vertices[7]],  # Top face
+        [vertices[0], vertices[1], vertices[5], vertices[4]],  # Side faces
+        [vertices[1], vertices[2], vertices[6], vertices[5]],
+        [vertices[2], vertices[3], vertices[7], vertices[6]],
+        [vertices[3], vertices[0], vertices[4], vertices[7]],
+    ]
+
+    # Create the 3D polygon collection with darker edges
+    box = art3d.Poly3DCollection(
+        faces, alpha=0.2, facecolor='cyan', edgecolor='darkblue', linewidths=1.5
+    )
+    ax.add_collection3d(box)
+
+
 def render(processed_videos, fps, paddle_radius=0.08, show_feet=False, show_extended=False, preds_start_index=None, mean_ball_pos=None, std_ball_pos=None):
     """
     i scene index
@@ -185,90 +263,7 @@ def render(processed_videos, fps, paddle_radius=0.08, show_feet=False, show_exte
             if frame in scene:
                 p1_keypoints, p2_keypoints, ball_pos, pad1_pose, pad2_pose = scene[frame]
 
-                # Plot the players.
-                render_player(ax, p1_keypoints, i)
-                render_player(ax, p2_keypoints, i)
-
-                # Render paddles (optional, if data is available)
-                # render_paddle(ax, pad1_pose, paddle_radius, "red", RESCALE_FACTOR)
-                # render_paddle(ax, pad2_pose, paddle_radius, "red", RESCALE_FACTOR)
-                # TODO(nima): what is this for?
-                if False and i == 0 and preds_start_index is not None and frame >= preds_start_index:
-                    t = (frame - preds_start_index) / fps
-                    # Define the vertices of the box around the ball
-                    box_x, box_y, box_z = generate_reachable_box(t)
-
-                    # Create the vertices for the bounding box
-                    vertices = [
-                        [box_x[0], box_y[0], box_z[0]],
-                        [box_x[1], box_y[0], box_z[0]],
-                        [box_x[1], box_y[1], box_z[0]],
-                        [box_x[0], box_y[1], box_z[0]],
-                        [box_x[0], box_y[0], box_z[1]],
-                        [box_x[1], box_y[0], box_z[1]],
-                        [box_x[1], box_y[1], box_z[1]],
-                        [box_x[0], box_y[1], box_z[1]],
-                    ]
-
-                    # Define the faces of the bounding box
-                    faces = [
-                        [vertices[0], vertices[1], vertices[2], vertices[3]],  # Bottom face
-                        [vertices[4], vertices[5], vertices[6], vertices[7]],  # Top face
-                        [vertices[0], vertices[1], vertices[5], vertices[4]],  # Side faces
-                        [vertices[1], vertices[2], vertices[6], vertices[5]],
-                        [vertices[2], vertices[3], vertices[7], vertices[6]],
-                        [vertices[3], vertices[0], vertices[4], vertices[7]],
-                    ]
-
-                    # Create the 3D polygon collection with darker edges
-                    box = art3d.Poly3DCollection(
-                        faces, alpha=0.1, facecolor='red', edgecolor='darkred', linewidths=1.5
-                    )
-                    ax.add_collection3d(box)
-                    
-                if ball_pos is not None:
-                    ball_pos_scaled = ball_pos * RESCALE_FACTOR
-                    ax.scatter(ball_pos_scaled[0], ball_pos_scaled[1], ball_pos_scaled[2], s=4, color="black" if i == 0 else "green")
-
-                    if i == 0 and preds_start_index and frame >= preds_start_index and frame <= 25 + preds_start_index:
-                        t = round((frame - preds_start_index) * 30 / fps)
-                        r = conformal_quantiles[:, t]
-                        r = r * ((std_ball_pos[frame] * RESCALE_FACTOR) + 0.016 * (t + 1))
-
-                        mean_ball_pos_scaled = mean_ball_pos[frame] * RESCALE_FACTOR
-                        # Define the vertices of the box around the ball
-                        box_x = [mean_ball_pos_scaled[0] - r[0], mean_ball_pos_scaled[0] + r[0]]
-                        box_y = [mean_ball_pos_scaled[1] - r[1], mean_ball_pos_scaled[1] + r[1]]
-                        box_z = [mean_ball_pos_scaled[2] - r[2], mean_ball_pos_scaled[2] + r[2]]
-
-                        # Create the vertices for the bounding box
-                        vertices = [
-                            [box_x[0], box_y[0], box_z[0]],
-                            [box_x[1], box_y[0], box_z[0]],
-                            [box_x[1], box_y[1], box_z[0]],
-                            [box_x[0], box_y[1], box_z[0]],
-                            [box_x[0], box_y[0], box_z[1]],
-                            [box_x[1], box_y[0], box_z[1]],
-                            [box_x[1], box_y[1], box_z[1]],
-                            [box_x[0], box_y[1], box_z[1]],
-                        ]
-
-                        # Define the faces of the bounding box
-                        faces = [
-                            [vertices[0], vertices[1], vertices[2], vertices[3]],  # Bottom face
-                            [vertices[4], vertices[5], vertices[6], vertices[7]],  # Top face
-                            [vertices[0], vertices[1], vertices[5], vertices[4]],  # Side faces
-                            [vertices[1], vertices[2], vertices[6], vertices[5]],
-                            [vertices[2], vertices[3], vertices[7], vertices[6]],
-                            [vertices[3], vertices[0], vertices[4], vertices[7]],
-                        ]
-
-                        # Create the 3D polygon collection with darker edges
-                        box = art3d.Poly3DCollection(
-                            faces, alpha=0.2, facecolor='cyan', edgecolor='darkblue', linewidths=1.5
-                        )
-                        ax.add_collection3d(box)
-
+                # Plot the ball.
                 if frame == 0:
                     ball_trajectory.clear()
                 if ball_pos is not None:
@@ -276,8 +271,26 @@ def render(processed_videos, fps, paddle_radius=0.08, show_feet=False, show_exte
                     # Keep only the last 5 positions
                     if len(ball_trajectory) > 5:
                         ball_trajectory.pop(0)
-                    ball_trajectory_arr = np.array(ball_trajectory)
-                    ax.plot(ball_trajectory_arr[:, 0] * RESCALE_FACTOR, ball_trajectory_arr[:, 1] * RESCALE_FACTOR, ball_trajectory_arr[:, 2] * RESCALE_FACTOR, color="black" if i == 0 else "red")
+
+                    render_ball(ax, ball_trajectory, i)
+
+                # Plot the players.
+                render_player(ax, p1_keypoints, i)
+                render_player(ax, p2_keypoints, i)
+
+                # Render paddles (optional, if data is available)
+                # render_paddle(ax, pad1_pose, paddle_radius, "red", RESCALE_FACTOR)
+                # render_paddle(ax, pad2_pose, paddle_radius, "red", RESCALE_FACTOR)
+
+                # Plot the reachable box as it grows over time
+                if i == 0 and preds_start_index and frame >= preds_start_index:
+                    t = (frame - preds_start_index) / fps
+                    render_reachable_box(ax, t)
+                    
+                # Plot the conformal box
+                if i == 0 and preds_start_index and frame >= preds_start_index and frame <= 25 + preds_start_index:
+                    t = round((frame - preds_start_index) * 30 / fps)
+                    render_conformal_box(ax, conformal_quantiles, t, mean_ball_pos[frame], std_ball_pos[frame])
 
         if frame in scenes[0]:    
             render_table(ax, table_dims)
